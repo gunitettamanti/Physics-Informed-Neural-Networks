@@ -1,4 +1,4 @@
-""" PINN implementation of opinion model """
+""" PINN implementation of Porous Media Equation"""
  
 import tensorflow as tf
 from tensorflow import keras
@@ -9,9 +9,10 @@ from pinn      import PhysicsInformedNN
 from equations import opinion_model 
 import numpy as np
 import time as time
+import matplotlib.pyplot as plt
 
 lr = 1e-4
-layers  = [2] + 3*[64] + [2]
+layers  = [2] + 3*[64] + [1]
 
 PINN = PhysicsInformedNN(layers,
                          dest='./', #saque el /odir porque no hacia falta 
@@ -54,48 +55,22 @@ def cte_validation(self,X,u):
     return validation
 def gaussian( x , s):
     return 1./np.sqrt( 2. * np.pi * s**2 ) * np.exp( -x**2 / ( 2. * s**2 ) )
-def solution(X):  
-  sol = np.zeros(len(X))
-  for i in range(len(X)):
-    x = X[i,1]
-    t_0 = X[i,0]
-    lower = t_0 - 1
-    uper = 1 - t_0    
-    sol[i] = np.where((x<lower) | (x>uper),0,1) * 1/(2-2*t_0) 
-  return sol.reshape((len(X),1))
-def convolution(X):
-  s = 0.1
-  t = len(np.unique(X[:,0]))  
-  Nx = int(len(X)/t)  
-  sol = np.zeros((Nx*t,1))
-  for i in range(t):
-    x_eval = X[i*Nx:(i+1)*Nx]          
-    u_eval = solution(x_eval).reshape(-1)        
-    gauss = gaussian(x_eval[:,1],s)  
-    conv = np.convolve(u_eval,gauss,mode='same')  
-    sol[i*Nx:(i+1)*Nx] = ((conv/np.max(conv))*np.max(u_eval)).reshape((len(u_eval),1))            
-  return sol
-def linear(x):
-   sol = np.where((x<-1) | (x>1),0,1) * ((x+1)/2)
-   return sol.reshape(len(x),1)
+
 
 Lx = 4 
 Nx = 100
-Nt = 500
+Nt = 100
 
-t = np.linspace(0,0.05,Nt)
-x = np.linspace(-2,2,Nx)
-
-#sigma = 0.02
-#gauss = gaussian(x,sigma)  
-#conv = np.convolve(linear(x).reshape(len(linear(x))),gauss,mode='same')  
-#cond_ini = np.tile(conv.reshape(len(conv)),Nt).reshape(Nt*len(conv),1)
+seq_t = 0.05
+t = seq_t*np.random.rand(Nt) 
+x = 4*np.random.rand(Nx) - 2
 
 T,X = np.meshgrid(t,x)
-X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None])) #Ordeno el vector como (t,x)
+ #Ordeno el vector como (t,x)
+X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None]))
 
-Y = np.hstack((convolution(X), convolution(X))) #[u(t_0,x_0),u(t_1,x_1),...]
-#Y = np.hstack((cond_ini,cond_ini))
+#Condicion inicial gaussiana con una dispersion de 0.5
+Y = gaussian(X,0.5)
 
 #cond_ini = np.loadtxt('0.34.py', delimiter=',')
 #Y[:Nx] = cond_ini[:,0].reshape(len(cond_ini),1)
@@ -116,16 +91,15 @@ flags = np.repeat(np.arange(Nt/n_t_in_batch),Nx*n_t_in_batch)
 
 alpha = 0.0
 tot_eps = 50000
-eq_params = [Lx/Nx,n_t_in_batch]
-#eq_params = [np.float32(p) for p in eq_params] 
+#eq_params = [n_t_in_batch]
 
-PINN.validation = cte_validation(PINN,X,convolution)
+PINN.validation = cte_validation(PINN,X,Y)
 
 t1 = time.time()
 PINN.train(X, Y, opinion_model,
            epochs=tot_eps,
            batch_size=n_t_in_batch*Nx,
-           eq_params=eq_params,           
+           #eq_params=eq_params,           
            lambda_data=lambda_data,   # Punto donde se enfuerza L_bc
            lambda_phys=lambda_phys,
            lambda_bc=lambda_bc, 
