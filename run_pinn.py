@@ -6,7 +6,7 @@ from tensorflow import keras
 tf.keras.backend.set_floatx('float32')
 
 from pinn      import PhysicsInformedNN
-from equations import opinion_model 
+from equations import PME
 import numpy as np
 import time as time
 import matplotlib.pyplot as plt
@@ -56,61 +56,71 @@ def cte_validation(self,X,u):
 def gaussian( x , s):
     return 1./np.sqrt( 2. * np.pi * s**2 ) * np.exp( -x**2 / ( 2. * s**2 ) )
 
+Nr = 20000
+Ncb = 100
+Nd = 100
 
-Lx = 4 
-Nx = 100
-Nt = 100
+tmin = 0
+tmax = 0.05
+xmin = -2
+xmax = 2
 
-seq_t = 0.05
-t = seq_t*np.random.rand(Nt) 
-x = 4*np.random.rand(Nx) - 2
+lb = np.array([tmin,xmin])
+ub = np.array([tmax,xmax])
 
-T,X = np.meshgrid(t,x)
- #Ordeno el vector como (t,x)
-X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None]))
+#Cond ini
+t_0 = np.ones([Nd,1])*lb[0]
+x_0 = np.random.uniform(xmin,xmax,(Nd,1))
+X_0 = np.concatenate([t_0,x_0],axis=1)
+
+#Cond borde
+t_cb = np.random.uniform(tmin,tmax,(Ncb,1))
+x_cb = lb[1] + (ub[1] - lb[1])*np.random.binomial(1,0.5,(Ncb,1))
+X_cb = np.concatenate([t_cb,x_cb],axis=1)
+
+#Colllocations points
+t_r = np.random.uniform(tmin,tmax,(Nr,1))
+x_r = np.random.uniform(xmin,xmax,(Nr,1))
+X_r = np.concatenate([t_r,x_r],axis=1)
+
+X = np.concatenate([X_0,np.concatenate([X_r,X_cb],axis=0)],axis=0)
 
 #Condicion inicial gaussiana con una dispersion de 0.5
-Y = gaussian(X,0.5)
+Y = gaussian(X_0[:,1],0.5).reshape(Nd,1)
 
 #cond_ini = np.loadtxt('0.34.py', delimiter=',')
 #Y[:Nx] = cond_ini[:,0].reshape(len(cond_ini),1)
 
-lambda_data = np.zeros(Nt*Nx) #[1,0,0,..]
-lambda_data[:Nx] = 1e6
+tot_point = Ncb+Nd+Nr
+lambda_data = np.zeros(tot_point)
+lambda_phys = np.zeros(tot_point)
+lambda_bc = np.zeros(tot_point)
 
-lambda_phys = np.ones(Nt*Nx)
-lambda_phys[:Nx] = 0 #[0,1,1,..]
+lambda_phys[Nd:Nd+Nr] = 1
+lambda_bc[-Ncb:] = 1
 
-bc = np.zeros(Nx)
-bc[:5] = 1
-bc[-5:] = 1
-lambda_bc = np.tile(bc,Nt)
-
-n_t_in_batch = Nt #Nt tiene que ser divisble por batches
-flags = np.repeat(np.arange(Nt/n_t_in_batch),Nx*n_t_in_batch)
-
-alpha = 0.0
-tot_eps = 50000
-#eq_params = [n_t_in_batch]
+tot_eps = 10000
 
 PINN.validation = cte_validation(PINN,X,Y)
 
 t1 = time.time()
-PINN.train(X, Y, opinion_model,
+exp = 6
+for i in range(np.arange(1,7)):
+    lambda_data[:Nd] = 1*10**exp
+    PINN.train(X, Y, PME,
            epochs=tot_eps,
-           batch_size=n_t_in_batch*Nx,
+           batch_size=tot_point,
            #eq_params=eq_params,           
            lambda_data=lambda_data,   # Punto donde se enfuerza L_bc
            lambda_phys=lambda_phys,
            lambda_bc=lambda_bc, 
-           flags=flags,               # Separa el dataset a cada t
-           rnd_order_training=False,  # No arma batches al hacer
-           alpha=alpha,
+           #flags=flags,               # Separa el dataset a cada t
+           #rnd_order_training=False,  # No arma batches al hacer
+           #alpha=alpha,
            verbose=False,            
-           valid_freq=0,
+           valid_freq=1000,
            timer=False,
            data_mask=[True,False])
-
 t2 = time.time()
 print(int(t2-t1)/60)
 
