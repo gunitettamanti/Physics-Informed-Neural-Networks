@@ -28,10 +28,8 @@ PINN = PhysicsInformedNN(layers,
                          optimizer=keras.optimizers.legacy.Adam(lr),
                          #optimizer = 'lbfgs',
                          restore=True)
-
 ########################################################################################################################################################################################################
-#Funciones a utilizar
-
+#Funciones 
 def gif_sol(t):  
   filenames = []
   for i in t:    
@@ -122,7 +120,6 @@ def graph_space(Y,Nt,Nx,title):
    plt.yticks(fontsize = 15)
    cax = plt.axes([0.85, 0.1, 0.075, 0.8])
    plt.colorbar(cax=cax)
-
 ########################################################################################################################################################################################################
 # Definicion de dominio, solucion real y PINN          
 Nx = 100
