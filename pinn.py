@@ -658,7 +658,7 @@ class PhysicsInformedNN:
                                     x0=weights,
                                     method='L-BFGS-B',
                                     jac=True,
-                                options={'disp':True,'maxls':100})
+                                options={'disp':True,'maxiter':100})
             
         else:            
             gradients = self.get_loss_grads(x_batch,

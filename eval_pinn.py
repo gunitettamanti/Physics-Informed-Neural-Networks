@@ -136,7 +136,9 @@ def graph_space(Y,Nt,Nx,title):
    plt.colorbar(cax=cax)
 
 ########################################################################################################################################################################################################
-# Definicion de dominio, solucion real y PINN          
+# Definicion de dominio, solucion real y PINN   
+
+       
 Nx = 100
 Nt = 1000
 
