@@ -11,8 +11,8 @@ import numpy as np
 import time as time
 import matplotlib.pyplot as plt
 
-lr = 1e-4
-layers  = [2] + 3*[64] + [1]
+lr = 1e-6
+layers  = [2] + 4*[32] + [1]
 
 PINN = PhysicsInformedNN(layers,
                          dest='./', #saque el /odir porque no hacia falta 
@@ -56,12 +56,13 @@ def cte_validation(self,X,u):
 def gaussian( x , s):
     return 1./np.sqrt( 2. * np.pi * s**2 ) * np.exp( -x**2 / ( 2. * s**2 ) )
 
-Nr = 20000
+Nr = 1000 
 Ncb = 100
 Nd = 100
 
+
 tmin = 0
-tmax = 0.05
+tmax = 0.1
 xmin = -2
 xmax = 2
 
@@ -85,42 +86,37 @@ X_r = np.concatenate([t_r,x_r],axis=1)
 
 X = np.concatenate([X_0,np.concatenate([X_r,X_cb],axis=0)],axis=0)
 
+
 #Condicion inicial gaussiana con una dispersion de 0.5
-Y = gaussian(X_0[:,1],0.5).reshape(Nd,1)
+tot_point = Ncb+Nd+Nr
+Y = gaussian(X[:,1],0.5).reshape(tot_point,1)
 
 #cond_ini = np.loadtxt('0.34.py', delimiter=',')
 #Y[:Nx] = cond_ini[:,0].reshape(len(cond_ini),1)
 
-tot_point = Ncb+Nd+Nr
 lambda_data = np.zeros(tot_point)
 lambda_phys = np.zeros(tot_point)
 lambda_bc = np.zeros(tot_point)
 
 lambda_phys[Nd:Nd+Nr] = 1
 lambda_bc[-Ncb:] = 1
+lambda_data[:Nd] = 1
 
-tot_eps = 10000
+tot_eps = 2500
 
 PINN.validation = cte_validation(PINN,X,Y)
 
-t1 = time.time()
-exp = 6
-for i in range(np.arange(1,7)):
-    lambda_data[:Nd] = 1*10**exp
-    PINN.train(X, Y, PME,
+t1 = time.time()    
+PINN.train(X, Y, PME,
            epochs=tot_eps,
            batch_size=tot_point,
            #eq_params=eq_params,           
            lambda_data=lambda_data,   # Punto donde se enfuerza L_bc
            lambda_phys=lambda_phys,
            lambda_bc=lambda_bc, 
-           #flags=flags,               # Separa el dataset a cada t
-           #rnd_order_training=False,  # No arma batches al hacer
-           #alpha=alpha,
            verbose=False,            
-           valid_freq=1000,
-           timer=False,
-           data_mask=[True,False])
+           valid_freq=0 ,
+           timer=False)
 t2 = time.time()
 print(int(t2-t1)/60)
 

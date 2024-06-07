@@ -8,18 +8,19 @@ from tensorflow import keras
 tf.keras.backend.set_floatx('float64')
 
 from pinn      import PhysicsInformedNN
-from equations import opinion_model
+from equations import PME
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import imageio
 import copy
-
+import time as time
+from matplotlib.gridspec import GridSpec
 ########################################################################################################################################################################################################
 #Parametros de la red
 
 lr = 1e-5
-layers  = [2] + 3*[64] + [2]
+layers  = [2] + 4*[32] + [1]
 
 PINN = PhysicsInformedNN(layers,
                          dest='./', #saque el /odir porque no hacia falta 
@@ -28,19 +29,18 @@ PINN = PhysicsInformedNN(layers,
                          #optimizer = 'lbfgs',
                          restore=True)
 
-
 ########################################################################################################################################################################################################
 #Funciones a utilizar
 
 def gif_sol(t):  
   filenames = []
   for i in t:    
-    dom = np.array([(i,tt) for tt in np.linspace(np.min(x),np.max(x),Nx)])
-    solution = convolution(dom)
+    dom = np.array([(i,tt) for tt in np.linspace(np.min(-2),np.max(2),Nx)])
+    #solution = convolution(dom)
     pinn = PINN.model(dom)[0]
     plt.title(f'Solucion a t = {i}')
     plt.plot(dom[:,1],pinn[:,0],label = 'PINN')
-    plt.plot(dom[:,1],solution,label = 'Solucion Real')
+    #plt.plot(dom[:,1],solution,label = 'Solucion Real')
     plt.legend()
     # create file name and append it to a list
     filename = f'{i}.png'    
@@ -56,64 +56,19 @@ def gif_sol(t):
         writer.append_data(image)          
   # Remove files
   for filename in set(filenames):    
-    os.remove(filename)
-def gif_val(t):  
-  filenames = []
-  for i in t:    
-    dom = np.array([(i,tt) for tt in np.linspace(np.min(x),np.max(x),Nx)])
-    solution = convolution(dom)
-    pinn = PINN.model(dom)[0][:,0]
-    validation = ((pinn-solution)**2)/np.std(solution)
-    plt.title(f'Solucion a t = {i}')    
-    plt.plot(dom[:,1],validation,label = 'Error')
-    plt.legend()
-    # create file name and append it to a list
-    filename = f'{i}.png'    
-    for j in range(10):       
-       filenames.append(filename)                 
-    # save frame
-    plt.savefig(filename)
-    plt.close()  
-  # build gif
-  with imageio.get_writer('validation.gif', mode='I',duration=0.0000001) as writer:
-    for filename in filenames:
-        image = imageio.v2.imread(filename)
-        writer.append_data(image)          
-  # Remove files
-  for filename in set(filenames):    
     os.remove(filename)    
 def gaussian(x,s):
     return 1./np.sqrt( 2. * np.pi * s**2 ) * np.exp( -x**2 / ( 2. * s**2 ) )
-def solution(X):  
-  sol = np.zeros(len(X))
-  for i in range(len(X)):
-    x = X[i,1]
-    t_0 = X[i,0]
-    lower = t_0 - 1
-    uper = 1 - t_0    
-    sol[i] = np.where((x<lower) | (x>uper),0,1) * 1/(2-2*t_0) 
-  return sol.reshape((len(X),1))
-def convolution(X):
-  s = 0.1
-  t = len(np.unique(X[:,0]))  
-  Nx = int(len(X)/t)  
-  sol = np.zeros((Nx*t,1))
-  for i in range(t):
-    x_eval = X[i*Nx:(i+1)*Nx]          
-    u_eval = solution(x_eval).reshape(-1)        
-    gauss = gaussian(x_eval[:,1],s)  
-    conv = np.convolve(u_eval,gauss,mode='same')  
-    sol[i*Nx:(i+1)*Nx] = ((conv/np.max(conv))*np.max(u_eval)).reshape((len(u_eval),1))            
-  return sol
-def dif_fin(x,k):   
-   dx = (x[:,1][1] - x[:,1][0])
-   u = convolution(x).reshape(len(x[:,1]))
+def dif_fin(sol,x,k):   
+   u = sol * sol
+   x = x[:,1].reshape(len(x[:,1]))
    u[1] = u[0]
    u[-2] = u[-1]
-   u = u + k
-   f = np.cumsum(u)*dx
-   F = u*(2*f - 1)      
-   return np.gradient(F, dx).reshape(len(x[:,1]),1)
+   if type(k) != int:    
+    u = u + k.reshape(len(x)) 
+   du_dx = np.gradient(u,x)
+   d2u_d2x = np.gradient(du_dx,x)
+   return -d2u_d2x
 def Euler(condicion_inicial,tiempo_final,n_pasos_temporales,espacio):
     h = tiempo_final/n_pasos_temporales
     tiempo = 0
@@ -126,63 +81,30 @@ def Euler(condicion_inicial,tiempo_final,n_pasos_temporales,espacio):
         solucion += h*F
         m += 1
     return solucion
-def dif_fin(x,k):   
-   dx = (x[:,1][1] - x[:,1][0])
-   u = convolution(x).reshape(len(x[:,1]))    
-   u[1] = u[0]
-   u[-2] = u[-1]  
-   if type(k) != int:    
-    u = u + k.reshape(len(x[:,1]))
-   f = np.cumsum(u)*dx   
-   F = u*(2*f - 1)      
-   return np.gradient(F, dx).reshape(len(x[:,1]),1)
 def RK2(condicion_inicial,tiempo_final,n_pasos_temporales,espacio):  
+    solucion = copy.copy(condicion_inicial)
     h = tiempo_final/n_pasos_temporales
     tiempo = 0
-    solucion = copy.copy(condicion_inicial)
     m = 0
     while m < n_pasos_temporales:    
-        tiempo += h
         x1 = np.array([(tiempo,tt) for tt in espacio])
-        F1 = dif_fin(x1,0)        
+        F1 = dif_fin(solucion,x1,0)        
         k1 = h*F1        
+        tiempo += h
         x2 = np.array([(tiempo + h,tt) for tt in espacio])
-        F2 = dif_fin(x2,k1)
+        F2 = dif_fin(solucion,x2,k1)
         k2 = h*F2
         solucion += 0.5 * (k1 + k2)
         m += 1
-    return solucion    
-def RK4(condicion_inicial,tiempo_final,n_pasos_temporales,espacio):  
-    h = tiempo_final/n_pasos_temporales
-    tiempo = 0
-    solucion = copy.copy(condicion_inicial)
-    m = 0
-    while m < n_pasos_temporales:    
-        tiempo += h
-        x1 = np.array([(tiempo,tt) for tt in espacio])
-        F1 = dif_fin(x1,0)        
-        k1 = h*F1        
-        x2 = np.array([(tiempo + h/2,tt) for tt in espacio])
-        F2 = dif_fin(x2,k1/2)
-        k2 = h*F2
-        F3 = dif_fin(x2,k2/2)
-        k3 = h*F3
-        x4 = np.array([(tiempo + h,tt) for tt in espacio])
-        F4 = dif_fin(x4,k3)
-        k4 = h*F4
-        solucion += (1/6) * (k1 + 2*k2 + 2*k3 + k4)
-        m += 1
-    return solucion       
+    return solucion           
 def gif_sol_rk2(x,t,s):  
   if len(t) != len(s):
      print('t and s dont have the same shape')
   filenames = []
   for i in range(len(t)):    
     dom = np.array([(t[i],tt) for tt in np.linspace(np.min(x),np.max(x),len(x))])
-    solution = convolution(dom)
     plt.title(f'Solucion a t = {t[i]}')
     plt.plot(dom[:,1],s[i],label = 'RK2')
-    plt.plot(dom[:,1],solution,label = 'Solucion Real')
     plt.legend()
     # create file name and append it to a list
     filename = f'{i}.png'    
@@ -212,35 +134,32 @@ def graph_space(Y,Nt,Nx,title):
    plt.yticks(fontsize = 15)
    cax = plt.axes([0.85, 0.1, 0.075, 0.8])
    plt.colorbar(cax=cax)
+
 ########################################################################################################################################################################################################
 # Definicion de dominio, solucion real y PINN          
-  
-Lx = 4 
-Nx = 500
-Nt = 50
+Nx = 100
+Nt = 1000
 
-t = np.linspace(0.93,0.94,Nt)
+t = np.linspace(0,0.1,Nt)
 x = np.linspace(-2,2,Nx)
 
 T,X = np.meshgrid(t,x)
 X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None])) #Ordeno el vector como (t,x)
 
 #Solucion real y solucion de la rex
-Y = np.hstack((convolution(X), convolution(X))) 
 fields = PINN.model(X)[0]
 
 #np.savetxt(f'{t[-1]}.py',fields,delimiter = ',')
 ########################################################################################################################################################################################################
 #Elijo los graficos que quiero ver 
-
 sol_3D_show = False
 model_3D_show = False
 model_show = False # Solucion de la red en todo el espacio 
 sol_show = False # Solucion real en todo el espacio
 loss_val = False # Funcion de perdida + Validation
 val = False # Validation sola
-loss = False # loss sola
-cond_in = False # Condicion inicial
+loss = True # loss sola
+cond_in = True # Condicion inicial
 x_0 = False # Miro la solucion a un tiempo t_0
 error_loc = False
 loss_eq = False
@@ -249,9 +168,97 @@ resi = False
 mass = False
 gif_sol(t)
 #gif_val(t)
+########################################################################################################################################################################################################
+t_ini = t[0]
+x_eval_1 = np.array([(t_ini,tt) for tt in x])
+u_eval_1 = gaussian(x_eval_1[:,1],0.5)
+fields_eval_1 = PINN.model(x_eval_1)[0]
+
+t_ini = t[25]
+x_eval_2 = np.array([(t_ini,tt) for tt in x])
+fields_eval_2 = PINN.model(x_eval_2)[0]
+
+t_ini = t[50]
+x_eval_3 = np.array([(t_ini,tt) for tt in x])
+fields_eval_3 = PINN.model(x_eval_3)[0]
+
+t_ini = t[75]
+x_eval_4 = np.array([(t_ini,tt) for tt in x])
+fields_eval_4 = PINN.model(x_eval_4)[0]
 
 
+#Derivadas parciales de la solucion de la red.
+coords = tf.convert_to_tensor(x_eval_3)
 
+with tf.GradientTape(persistent=True) as t2:
+    t2.watch(coords)
+    with tf.GradientTape(persistent=True) as t1:                
+          t1.watch(coords)
+          u = PINN.model(coords)[0]
+          u2 = u * u
+
+    grad_t = t1.gradient(u,coords)
+    u_t = grad_t[:,0]
+    grad_x = t1.gradient(u2,coords)
+
+    del t1
+
+grad_u2 = t2.gradient(grad_x,coords,unconnected_gradients=tf.UnconnectedGradients.ZERO)           
+u_xx = grad_u2[:,1]                         
+
+del t2 
+########################################################################################################################################################################################################
+""" x_cond_ini = np.array([(0,tt) for tt in x])
+cond_ini = gaussian(x_cond_ini[:,1],0.5)
+
+tiempo_1 = time.time()
+ 
+sol = []
+for i in range(len(t)):
+    solution_rk2 = RK2(cond_ini,t[i],i,x)
+    sol.append(solution_rk2)
+
+tiempo_2 = time.time()
+print(tiempo_2-tiempo_1)
+sol_conc = np.concatenate(sol)
+gif_sol_rk2(x,t,sol) """
+########################################################################################################################################################################################################
+# create objects
+fig = plt.figure(figsize=(10,10))
+gs = GridSpec(2, 2, figure=fig)
+ 
+# create sub plots as grid
+ax1 = fig.add_subplot(gs[1, :])
+ax2 = fig.add_subplot(gs[0, 1])
+ax3 = fig.add_subplot(gs[0, : -1])
+
+
+ax2.set_title('Residuales')
+ax2.plot(x_eval_3[:,1],u_xx,label = r'$u_{xx}$')
+ax2.plot(x_eval_3[:,1],u_t,label = r'$u_{t}$')
+ax2.plot(x_eval_3[:,1],u_t + u_xx,label = r'$u_{t} + u_{xx} = 0$')
+ax2.set_xlabel('x')
+ax2.legend()
+
+ax3.set_title('Condicion Inicial')
+ax3.plot(x_eval_1[:,1],u_eval_1,label = 'Solution')
+ax3.plot(x_eval_1[:,1],fields_eval_1,'x',label = 'PINN')  
+ax3.set_xlabel('x')
+ax3.set_ylabel('u(0,x)')
+ax3.legend()
+
+out = np.loadtxt('output.dat', unpack=True)
+ax1.set_title('Training loss')
+ax1.set_xlabel('Epochs')
+ax1.set_ylabel('Loss')
+ax1.semilogy(out[0], out[1],label='Loss data')
+ax1.semilogy(out[0], out[2],label='Loss phys')
+#ax1.semilogy(out[0], out[3],label='Loss bc')
+ax1.legend()
+
+# depict illustration
+fig.suptitle("4*32")
+######################################################################################################################################################################################################## 
 if sol_3D_show:
     fig = plt.figure(figsize = (10,10))
     ax = plt.axes(projection='3d')
@@ -324,9 +331,9 @@ if val:
     plt.ylabel('Loss')    
 if cond_in:  
   plt.figure()
-  plt.title(f'T = {t_ini}')
+  #plt.title(f'T = {t_ini}')
   plt.plot(x_eval_1[:,1],u_eval_1,label = 'Solution')
-  plt.plot(x_eval_1[:,1],fields_eval_1[:,0],label = 'PINN')  
+  plt.plot(x_eval_1[:,1],fields_eval_1,'x',label = 'PINN')  
   plt.xlabel('X')
   plt.ylabel('u(X)')
   plt.grid()
@@ -399,6 +406,13 @@ if resi:
   plt.ylabel('$u_{t} - F_{x}$')
   plt.grid()
   plt.legend()
+
+  plt.figure()
+  plt.plot(x_eval_1[:,1],u_xx,label = r'$u_{xx}$')
+  plt.plot(x_eval_1[:,1],u_t,label = r'$u_{t}$')
+  plt.plot(x_eval_1[:,1],u_t + u_xx,label = r'$u_{t} + u_{xx} = 0$')
+  plt.legend()
+
 
 
 plt.show()
