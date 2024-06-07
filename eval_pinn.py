@@ -133,8 +133,6 @@ X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None])
 
 #Solucion real y solucion de la rex
 fields = PINN.model(X)[0]
-
-
 #np.savetxt(f'{t[-1]}.py',fields,delimiter = ',')
 ########################################################################################################################################################################################################
 #Elijo los graficos que quiero ver 
