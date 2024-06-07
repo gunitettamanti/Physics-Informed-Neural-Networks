@@ -69,18 +69,6 @@ def dif_fin(sol,x,k):
    du_dx = np.gradient(u,x)
    d2u_d2x = np.gradient(du_dx,x)
    return -d2u_d2x
-def Euler(condicion_inicial,tiempo_final,n_pasos_temporales,espacio):
-    h = tiempo_final/n_pasos_temporales
-    tiempo = 0
-    solucion = copy.copy(condicion_inicial)
-    m = 0
-    while m < n_pasos_temporales:    
-        tiempo += h
-        x = np.array([(tiempo,tt) for tt in espacio])
-        F = dif_fin(x,0)        
-        solucion += h*F
-        m += 1
-    return solucion
 def RK2(condicion_inicial,tiempo_final,n_pasos_temporales,espacio):  
     solucion = copy.copy(condicion_inicial)
     h = tiempo_final/n_pasos_temporales
@@ -136,9 +124,7 @@ def graph_space(Y,Nt,Nx,title):
    plt.colorbar(cax=cax)
 
 ########################################################################################################################################################################################################
-# Definicion de dominio, solucion real y PINN   
-
-       
+# Definicion de dominio, solucion real y PINN          
 Nx = 100
 Nt = 1000
 
@@ -168,7 +154,7 @@ loss_eq = False
 Euler_graph = False
 resi = False
 mass = False
-gif_sol(t)
+#gif_sol(t)
 #gif_val(t)
 ########################################################################################################################################################################################################
 t_ini = t[0]
