@@ -2,10 +2,7 @@ import tensorflow as tf
 tf.keras.backend.set_floatx('float32')
 
 @tf.function
-def PME(model, coords, params):
-    """ Opinion model
-    Assumes coords is ordered in space and at constant t
-    """            
+def PME(model, coords, params):  
     with tf.GradientTape(persistent=True) as t2:
         t2.watch(coords)
         with tf.GradientTape(persistent=True) as t1:            
