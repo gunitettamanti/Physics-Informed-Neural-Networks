@@ -11,7 +11,7 @@ import numpy as np
 import time as time
 import matplotlib.pyplot as plt
 
-lr = 1e-5
+lr = 1e-4
 layers  = [2] + 4*[32] + [1]
 
 PINN = PhysicsInformedNN(layers,
@@ -57,10 +57,10 @@ def gaussian( x , s):
     return 1./np.sqrt( 2. * np.pi * s**2 ) * np.exp( -x**2 / ( 2. * s**2 ) )
 
 Nx = 100
-Nt = 200
+Nt = 100
 
 x = np.linspace(-2,2,Nx)
-t = np.linspace(0,0.02,Nx)
+t = np.linspace(0,0.01,Nt)
 
 T,X = np.meshgrid(t,x)
 X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None])) #Ordeno el vector como (t,x)
@@ -80,7 +80,7 @@ bc[:3] = 1
 bc[-3:] = 1
 lambda_bc = np.tile(bc,Nt)
 
-tot_eps = 10000
+tot_eps = 5000
 #PINN.validation = cte_validation(PINN,X,Y)
 
 t1 = time.time()    

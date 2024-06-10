@@ -534,18 +534,14 @@ class PhysicsInformedNN:
                                alpha):
         
         self.model.set_weights(self.unflatten_weights(weights,self.model))
-
-        loss = self.get_loss_grads(x_batch, y_batch,
-                      pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                      data_mask, bal_phys,alpha)[0]
-
-        grads =  self.get_loss_grads(x_batch, y_batch,
-                      pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                      data_mask, bal_phys,alpha)[4]
         
-        grads = np.concatenate([ g.numpy().flatten() for g in grads ]).astype('float64')                    
+        loss_grads = self.get_loss_grads(x_batch, y_batch,
+                      pde, eq_params, lambda_data, lambda_phys, lambda_bc,
+                      data_mask, bal_phys,alpha)
+        
+        grads = np.concatenate([ g.numpy().flatten() for g in loss_grads[4] ]).astype('float64')                    
 
-        return  loss.numpy(),grads
+        return  loss_grads[0].numpy(),grads
 
     #Loss and gradients function    
     def get_loss_grads(self, x_batch, y_batch,
@@ -562,6 +558,8 @@ class PhysicsInformedNN:
                 ybc = self.model(x_batch)                
                 
             y_pred_x  = tape1.gradient(ybc, x_batch,unconnected_gradients=tf.UnconnectedGradients.ZERO)    
+
+            del tape1
              
             #Initial condition
             aux = [tf.reduce_mean(
@@ -627,21 +625,10 @@ class PhysicsInformedNN:
                       pde, eq_params, lambda_data, lambda_phys, lambda_bc,
                       data_mask, bal_phys, alpha,ba,weights):
                 
-        gradients = self.get_loss_grads(x_batch, y_batch,pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                               data_mask, bal_phys,alpha)[4]
         
-        #loss = self.get_loss_grads(x_batch, y_batch,pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-        #                       data_mask, bal_phys,alpha)[0]
-        
-        loss_data = self.get_loss_grads(x_batch, y_batch,pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                               data_mask, bal_phys,alpha)[1]
-        
-        loss_phys = self.get_loss_grads(x_batch, y_batch,pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                               data_mask, bal_phys,alpha)[2]
-        
-        loss_bc = self.get_loss_grads(x_batch, y_batch,pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                               data_mask, bal_phys,alpha)[3]
-        
+        loss_grads = self.get_loss_grads(x_batch, y_batch,pde, eq_params, lambda_data, lambda_phys, lambda_bc,
+                               data_mask, bal_phys,alpha)
+            
         if self.optimizer == 'lbfgs':            
                
             scipy.optimize.minimize(fun=self.loss_and_grads_wrapper,
@@ -661,16 +648,7 @@ class PhysicsInformedNN:
                                 options={'disp':True,'maxiter':100})
             
         else:            
-            gradients = self.get_loss_grads(x_batch,
-                                            y_batch,                                            
-                                            pde, 
-                                            eq_params,
-                                            lambda_data,
-                                            lambda_phys,
-                                            lambda_bc,                            
-                                            data_mask, 
-                                            bal_phys,
-                                            alpha)[4]
+            gradients = loss_grads[4]
             
             self.optimizer.apply_gradients(zip(gradients,
                     self.model.trainable_variables))
@@ -683,9 +661,9 @@ class PhysicsInformedNN:
                 if inv['type'] == 'const':
                     inv_ctes.append(output[ii][0])
         
-        return (loss_data,
-                loss_phys,
-                loss_bc,                
+        return (loss_grads[1],
+                loss_grads[2],
+                loss_grads[3],                
                 inv_ctes,
                 bal_phys)
 
