@@ -11,7 +11,7 @@ import numpy as np
 import time as time
 import matplotlib.pyplot as plt
 
-lr = 1e-6
+lr = 1e-5
 layers  = [2] + 4*[32] + [1]
 
 PINN = PhysicsInformedNN(layers,
@@ -56,66 +56,40 @@ def cte_validation(self,X,u):
 def gaussian( x , s):
     return 1./np.sqrt( 2. * np.pi * s**2 ) * np.exp( -x**2 / ( 2. * s**2 ) )
 
-Nr = 1000 
-Ncb = 100
-Nd = 100
+Nx = 100
+Nt = 200
 
+x = np.linspace(-2,2,Nx)
+t = np.linspace(0,0.02,Nx)
 
-tmin = 0
-tmax = 0.1
-xmin = -2
-xmax = 2
-
-lb = np.array([tmin,xmin])
-ub = np.array([tmax,xmax])
-
-#Cond ini
-t_0 = np.ones([Nd,1])*lb[0]
-x_0 = np.random.uniform(xmin,xmax,(Nd,1))
-X_0 = np.concatenate([t_0,x_0],axis=1)
-
-#Cond borde
-t_cb = np.random.uniform(tmin,tmax,(Ncb,1))
-x_cb = lb[1] + (ub[1] - lb[1])*np.random.binomial(1,0.5,(Ncb,1))
-X_cb = np.concatenate([t_cb,x_cb],axis=1)
-
-#Colllocations points
-t_r = np.random.uniform(tmin,tmax,(Nr,1))
-x_r = np.random.uniform(xmin,xmax,(Nr,1))
-X_r = np.concatenate([t_r,x_r],axis=1)
-
-X = np.concatenate([X_0,np.concatenate([X_r,X_cb],axis=0)],axis=0)
-
-
-#Condicion inicial gaussiana con una dispersion de 0.5
-tot_point = Ncb+Nd+Nr
-Y = gaussian(X[:,1],0.5).reshape(tot_point,1)
+T,X = np.meshgrid(t,x)
+X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None])) #Ordeno el vector como (t,x)
+Y = gaussian(X[:,1],0.5).reshape(X.shape[0],1)
 
 #cond_ini = np.loadtxt('0.34.py', delimiter=',')
 #Y[:Nx] = cond_ini[:,0].reshape(len(cond_ini),1)
 
-lambda_data = np.zeros(tot_point)
-lambda_phys = np.zeros(tot_point)
-lambda_bc = np.zeros(tot_point)
+lambda_data = np.zeros(Nt*Nx) #[1,0,0,..]
+lambda_data[:Nx] = 1e2
 
-lambda_phys[Nd:Nd+Nr] = 1
-lambda_bc[-Ncb:] = 1
-lambda_data[:Nd] = 1
+lambda_phys = np.ones(Nt*Nx)
+lambda_phys[:Nx] = 0 #[0,1,1,..]
 
-tot_eps = 2500
+bc = np.zeros(Nx)
+bc[:1] = 1
+bc[-1:] = 1
+lambda_bc = np.tile(bc,Nt)
 
-PINN.validation = cte_validation(PINN,X,Y)
+tot_eps = 10000
+#PINN.validation = cte_validation(PINN,X,Y)
 
 t1 = time.time()    
 PINN.train(X, Y, PME,
            epochs=tot_eps,
-           batch_size=tot_point,
-           #eq_params=eq_params,           
+           batch_size=Nt*Nx,    
            lambda_data=lambda_data,   # Punto donde se enfuerza L_bc
            lambda_phys=lambda_phys,
            lambda_bc=lambda_bc, 
-           verbose=False,            
-           valid_freq=0 ,
            timer=False)
 t2 = time.time()
 print(int(t2-t1)/60)
