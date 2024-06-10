@@ -73,8 +73,8 @@ lambda_phys = np.ones(Nt*Nx)
 lambda_phys[:Nx] = 0 #[0,1,1,..]
 
 bc = np.zeros(Nx)
-bc[:3] = 1
-bc[-3:] = 1
+bc[:1] = 1
+bc[-1:] = 1
 lambda_bc = np.tile(bc,Nt)
 
 tot_eps = 5000
