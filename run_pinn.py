@@ -66,9 +66,6 @@ T,X = np.meshgrid(t,x)
 X = np.hstack((np.sort(T.flatten()[:,None],axis=0),X.flatten(order='F')[:,None])) #Ordeno el vector como (t,x)
 Y = gaussian(X[:,1],0.5).reshape(X.shape[0],1)
 
-#cond_ini = np.loadtxt('0.34.py', delimiter=',')
-#Y[:Nx] = cond_ini[:,0].reshape(len(cond_ini),1)
-
 lambda_data = np.zeros(Nt*Nx) #[1,0,0,..]
 lambda_data[:Nx] = 1e2
 
