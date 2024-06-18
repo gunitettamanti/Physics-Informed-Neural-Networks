@@ -18,7 +18,7 @@ with open('params.json') as f:
     params = json.load(f)
 
 layers  = params['layers']
-ld = params['ld']
+lp = params['lp']
 
 Nx = params['Nx']
 Nt = params['Nt']
@@ -31,7 +31,8 @@ t1 = params['t1']
  output_data,
  lambda_data,
  lambda_phys,
- xx,) = generate_domain(x0, x1, t0, t1, Nx, Nt, ld)
+ flags,
+ xx,) = generate_domain(x0, x1, t0, t1, Nx, Nt, lp)
 
 PINN = PhysicsInformedNN(layers,
                          dest='./', 
@@ -46,37 +47,9 @@ for lr in params['lrs']:
     PINN.train(input_data, 
                output_data,
                PME,
+               flags=flags,
                epochs=tot_eps,
                batch_size=params['batch_size'],
                lambda_data=lambda_data,
                lambda_phys=lambda_phys,
                )
-
-# initial condition
-points = np.array([(0.0, xi) for xi in xx]).astype('float32')
-out = PINN.model(points)[0]
-plt.figure()
-plt.plot(xx, gaussian(xx, 0.5), label='Initial data')
-plt.plot(xx, out, label='Initial PINN')
-
-# end condition
-points = np.array([(t1, xi) for xi in xx]).astype('float32')
-out = PINN.model(points)[0]
-plt.plot(xx, out, label='Final PINN')
-plt.legend()
-
-# Residuals
-points = np.array([(0.0, xi) for xi in xx]).astype('float32')
-u_t, u_xx = PME(PINN.model, points, [], separate_terms=True)
-plt.figure()
-plt.plot(u_t)
-plt.plot(u_xx)
-
-# loss
-ep, ld, lp = np.loadtxt('output.dat', unpack=True)
-plt.figure()
-plt.semilogy(ep, ld)
-plt.semilogy(ep, lp)
-
-# show
-plt.show()

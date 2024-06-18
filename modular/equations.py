@@ -2,7 +2,7 @@ import tensorflow as tf
 tf.keras.backend.set_floatx('float32')
 
 @tf.function
-def PME(model, coords, params, separate_terms=True):  
+def PME(model, coords, params, separate_terms=False):  
     with tf.GradientTape(persistent=True) as t2:
         t2.watch(coords)
         with tf.GradientTape(persistent=True) as t1:            
@@ -26,5 +26,5 @@ def PME(model, coords, params, separate_terms=True):
     if separate_terms:
         return u_t, u_xx
     else:
-        f = u_t + u_xx
+        f = u_t + 0.01*u_xx
         return [f]

@@ -504,7 +504,7 @@ class PhysicsInformedNN:
             output = self.model(x_batch, training=True)
             y_pred = output[0]
             aux = [tf.reduce_mean(
-                   lambda_data*tf.abs(y_batch[:,ii]-y_pred[:,ii]))
+                   lambda_data*tf.square(y_batch[:,ii]-y_pred[:,ii]))
                    for ii in range(self.dout)
                    if data_mask[ii]]
             loss_data = tf.add_n(aux)
@@ -512,7 +512,7 @@ class PhysicsInformedNN:
             # Physics part
             equations = pde(self.model, x_batch, eq_params)
             loss_eqs  = [tf.reduce_mean(
-                         lambda_phys*tf.abs(eq))
+                         lambda_phys*tf.square(eq))
                          for eq in equations]
             loss_phys = tf.add_n(loss_eqs)
 
@@ -600,9 +600,9 @@ def get_tr_k(grads):
 
 def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
     idxs = []
-    for fi in flag_idxs:
+    for fi, fn in zip(flag_idxs, [10, 90]):
         if random:
-            sl = np.random.choice(fi, len(fi)//batches)
+            sl = np.random.choice(fi, fn)
             idxs.append(sl)
         else:
             flag_size = len(fi)//batches
