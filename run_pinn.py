@@ -215,3 +215,4 @@ while delta_t > 0 or t1 < tfinal:
 os.remove(f"{t1}.py")
 time2 = time.time()
 print(int(time2-time1)/60)
+
