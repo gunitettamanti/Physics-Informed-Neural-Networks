@@ -189,9 +189,6 @@ while delta_t > 0 or t1 < tfinal:
     u_t_mean = np.mean(u_t_abs,axis=1)
 
     crit = f_mean/u_t_mean
-    print(crit)
-    print(f_mean)
-    print(u_t_mean)
     threshold = 0.1
     t_mod = 0.01
     if np.any(crit,where=crit>threshold):        
