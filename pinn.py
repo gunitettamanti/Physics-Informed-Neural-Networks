@@ -1,6 +1,8 @@
 """Implementation of Physics-Informed Neural Networks (PINNs)
+
 Original references:
     - Raissi et al
+
 2022 Patricio Clark Di Leoni
      Departamento de Ingeniería
      Universidad de San Andrés
@@ -11,31 +13,35 @@ import numpy as np
 import tensorflow as tf
 from   tensorflow import keras
 import time
-import scipy.optimize
-
 
 tf.keras.backend.set_floatx('float32')
 
 
 class PhysicsInformedNN:
     """General PINN class
+
     Dimensional and problem agnostic implementatation of a Physics Informed
     Neural Netowrk (PINN), geared towards solving inverse problems.
     Dimensionality is set by specifying the dimensions of the inputs and the
     outputs. The Physics is set by supplying the partial differential equations
     of the problem.
+
     The instantiated model is stored in self.model and it takes coords as inputs
     and outputs a list where the first contains the learned fields and the rest
     of the entries contains the different learned parameters when running an
     inverse PINN or a dummy output that should be disregarded when not.
+
     Training can be done using the dynamic balance methods described in
     "Understanding and mitigating gradient pathologies in physics-informed
     neural networks" by Wang, Teng & Perdikaris (2020) (alpha option in
     training).
+
     A few definitions before proceeding to the initialization parameters:
     
     din   = input dims
     dout  = output dims
+
+
     Args:
         layers : list
             Shape of the NN. The first element must be din, and the last one
@@ -43,7 +49,7 @@ class PhysicsInformedNN:
         dest : str [optional]
             Path for output files.
         activation : str [optional]
-            Activation function to be used. Default is 'tanh'.
+            Activation function to be used. Default is 'elu'.
         resnet : bool [optional]
             If True turn PINN into a residual network with two layers per
             block.
@@ -58,6 +64,9 @@ class PhysicsInformedNN:
             If a number or an array of size dout is supplied, the layer layer
             of the network normalizes the outputs using z-score. Default is
             False.
+        feature_expansion: func or None [optional]
+            If not None, then the inputs are feature expanded using the
+            function provided. Expansion is applied after norm_in. Default is None.
         inverse : list [optional]
             If a list is a supplied the PINN will run the inverse problem,
             where one or more of the paramters of the pde are to be found. The
@@ -78,9 +87,10 @@ class PhysicsInformedNN:
                  dest='./',
                  activation='elu',
                  resnet=False,
-                 optimizer=None,
+                 optimizer=keras.optimizers.Adam(learning_rate=5e-4),
                  norm_in=None,
                  norm_out=None,
+                 feature_expansion=None,
                  norm_out_type='z-score',
                  inverse=None,
                  restore=True):
@@ -115,10 +125,14 @@ class PhysicsInformedNN:
                 return x
 
         self.norm = norm
-        coords = keras.layers.Lambda(norm)(coords)
+        norm_coords = keras.layers.Lambda(norm)(coords)
+
+        # Feature expansion
+        if feature_expansion is not None:
+            norm_coords = keras.layers.Lambda(feature_expansion)(norm_coords)
 
         # Generate main network
-        fields = self._generate_network(coords, layers, activation, resnet)
+        fields = self._generate_network(norm_coords, layers, activation, resnet)
 
         # Normalize main network output
         if norm_out is not None:
@@ -139,9 +153,9 @@ class PhysicsInformedNN:
 
         # Generate inverse parts
         if self.inverse is not None:
-            inv_outputs = self._generate_inverse(coords)
+            inv_outputs = self._generate_inverse(norm_coords)
         else:
-            inv_outputs = [keras.layers.Dense(1, name='dummy')(coords)]
+            inv_outputs = [keras.layers.Dense(1, name='dummy')(norm_coords)]
         outputs = [fields] + inv_outputs
 
         # Create model
@@ -157,12 +171,11 @@ class PhysicsInformedNN:
         # Create save checkpoints / Load if existing previous
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
-                                           bal_phys=self.bal_phys)
-                                           
-        
+                                           bal_phys=self.bal_phys,
+                                           optimizer=self.optimizer)
         self.manager = tf.train.CheckpointManager(self.ckpt,
                                                   self.dest + '/ckpt',
-                                                  max_to_keep=1)
+                                                  max_to_keep=5)
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
@@ -215,7 +228,6 @@ class PhysicsInformedNN:
         # Output definition
         fields = keras.layers.Dense(dout,
                                     kernel_initializer=act_dict['kinit'],
-                                    activation='relu',
                                     name=out_name)(hidden)
 
         return fields
@@ -265,11 +277,14 @@ class PhysicsInformedNN:
     def _generate_inverse(self, coords):
         """
         Generate networks for inverse problem
+
         This function returns a list whose entries are either False if the
         parameter is fixed, or a neural network that ouputs the parameter to be
         learned.
+
         Parameters
         ----------
+
         coords : keras Input layer
             The input layer of the PINN.
         """
@@ -303,7 +318,7 @@ class PhysicsInformedNN:
                                              inv['activation'],
                                              inv['resnet'],
                                              mask=inv['mask'],
-                                             name=name)
+                                             out_name=name)
 
             # Append inverse
             inv_outputs.append(out)
@@ -319,7 +334,6 @@ class PhysicsInformedNN:
               eq_params=None,
               lambda_data=1.0,
               lambda_phys=1.0,
-              lambda_bc=1.0,
               alpha=0.0,
               flags=None,
               rnd_order_training=True,
@@ -331,9 +345,12 @@ class PhysicsInformedNN:
               data_mask=None):
         """
         Train function
+
         Loss functions are written to output.dat
+
         Parameters
         ----------
+
         x_data : ndarray
             Coordinates where the data constraint is going to be enforced.
             Must have shape (:, din).
@@ -358,8 +375,6 @@ class PhysicsInformedNN:
             Weight of the physics part of the loss function. If it is an, array
             it should be the same length as X_data, each entry will correspond
             to the particular lambda_phys of the corresponding data point.
-        lambda_bc : float or array [optional]
-            Weight to impose border conditions. 
         alpha : float [optional]
             If non-zero, performs adaptive balance of the physics and data part
             of the loss functions. See comment above for reference. Default is
@@ -402,7 +417,6 @@ class PhysicsInformedNN:
         if not np.shape(lambda_data):
             lambda_data = np.array([lambda_data for _ in range(len_data)])
             lambda_phys = np.array([lambda_phys for _ in range(len_data)])
-            lambda_bc = np.array([lambda_bc for _ in range(len_data)])
 
         # Expand flags
         if flags is None:
@@ -422,50 +436,40 @@ class PhysicsInformedNN:
         ep0     = int(self.ckpt.step)
         for ep in range(ep0, ep0+epochs):
             for ba in range(batches):
-                
+
                 # Create batches and cast to TF objects
                 (x_batch,
                  y_batch,
                  l_data,
-                 l_phys,
-                 l_bc) = get_mini_batch(x_data,
+                 l_phys) = get_mini_batch(x_data,
                                           y_data,
                                           lambda_data,
                                           lambda_phys,
-                                          lambda_bc,
                                           ba,
                                           batch_size,
                                           flag_idxs,
                                           random=rnd_order_training)
-                x_batch = tf.convert_to_tensor(x_batch, dtype='float32') #Agregue el type floay 32 para resolver error de formato
-                y_batch = tf.convert_to_tensor(y_batch, dtype='float32')
+                x_batch = tf.convert_to_tensor(x_batch)
+                y_batch = tf.convert_to_tensor(y_batch)
                 l_data  = tf.constant(l_data, dtype='float32')
                 l_phys  = tf.constant(l_phys, dtype='float32')
-                l_bc  = tf.constant(l_bc, dtype='float32')
                 ba_counter  = tf.constant(ba)
-                #Flatten Weights                
-                weights = np.concatenate(
-            [w.flatten() for w in self.model.get_weights()])    
-                                                      
+
                 if timer:
                     t0 = time.time()
-                
                 (loss_data,
                  loss_phys,
-                 loss_bc,                                 
                  inv_outputs,
                  bal_phys) = self._training_step(x_batch,
                                                  y_batch,
                                                  pde,
                                                  eq_params,
                                                  l_data,
-                                                 l_phys,    
-                                                 l_bc,                                             
+                                                 l_phys,
                                                  data_mask,
                                                  bal_phys,
                                                  alpha,
-                                                 ba_counter,
-                                                 weights)
+                                                 ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
                     if ba>10:
@@ -477,7 +481,6 @@ class PhysicsInformedNN:
                 self._print_status(ep,
                                   loss_data,
                                   loss_phys,
-                                  loss_bc,
                                   inv_outputs,
                                   alpha,
                                   verbose=verbose)
@@ -490,194 +493,78 @@ class PhysicsInformedNN:
             self.ckpt.step.assign_add(1)
             self.ckpt.bal_phys.assign(bal_phys.numpy())
             if ep%save_freq==0:
-                self.manager.save()  
+                self.manager.save()
 
-    def set_weights(self, flat_weights):
-        """
-        Set weights to the model.
-
-        Args:
-            flat_weights: flatten weights.
-        """
-
-        # get model weights
-        shapes = [ w.shape for w in self.model.get_weights() ]
-        # compute splitting indices
-        split_ids = np.cumsum([ np.prod(shape) for shape in [0] + shapes ])
-        # reshape weights
-        weights = [ flat_weights[from_id:to_id].reshape(shape)
-            for from_id, to_id, shape in zip(split_ids[:-1], split_ids[1:], shapes) ]
-        # set weights to the model
-        print('set_weight')
-        self.model.set_weights(weights)
-
-    #Funcion
-    def unflatten_weights(self, weights, model):
-        shapes = [w.shape for w in model.get_weights()]
-        split_ids = np.cumsum([ np.prod(shape) for shape in [0] + shapes ])
-        arrays = [ weights[from_id:to_id].reshape(shape) 
-                  for from_id, to_id, shape in zip(split_ids[:-1], split_ids[1:], shapes)]
-        return arrays
-    
-    #Wrapper function for fmin_l_bfgs_b
-    def loss_and_grads_wrapper(self,
-                               weights,  
-                               x_batch,                                                            
-                               y_batch,
-                               pde,
-                               eq_params,
-                               lambda_data,
-                               lambda_phys,
-                               lambda_bc,
-                               data_mask,
-                               bal_phys,
-                               alpha):
-        
-        self.model.set_weights(self.unflatten_weights(weights,self.model))
-        
-        loss_grads = self.get_loss_grads(x_batch, y_batch,
-                      pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                      data_mask, bal_phys,alpha)
-        
-        grads = np.concatenate([ g.numpy().flatten() for g in loss_grads[4] ]).astype('float64')                    
-
-        return  loss_grads[0].numpy(),grads
-
-    #Loss and gradients function    
-    def get_loss_grads(self, x_batch, y_batch,
-                      pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                      data_mask, bal_phys,alpha):
-        
-        with tf.GradientTape(persistent=True) as tape:            
+    @tf.function
+    def _training_step(self, x_batch, y_batch,
+                      pde, eq_params, lambda_data, lambda_phys,
+                      data_mask, bal_phys, alpha, ba):
+        with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(x_batch, training=True)
-            y_pred = output[0]            
-            
-            with tf.GradientTape() as tape1:                                
-                tape1.watch(x_batch)
-                ybc = self.model(x_batch)                
-                
-            y_pred_x  = tape1.gradient(ybc, x_batch,unconnected_gradients=tf.UnconnectedGradients.ZERO)    
-
-            del tape1
-             
-            #Initial condition
+            y_pred = output[0]
             aux = [tf.reduce_mean(
                    lambda_data*tf.square(y_batch[:,ii]-y_pred[:,ii]))
                    for ii in range(self.dout)
                    if data_mask[ii]]
-            loss_data = tf.add_n(aux)        
-            
-            # Physics part                              
-            equations = pde(self.model, x_batch, eq_params)            
+            loss_data = tf.add_n(aux)
+
+            # Physics part
+            equations = pde(self.model, x_batch, eq_params)
             loss_eqs  = [tf.reduce_mean(
                          lambda_phys*tf.square(eq))
-                         for eq in equations]            
-            loss_phys = tf.add_n(loss_eqs)            
-            equations = tf.convert_to_tensor(equations)
-                        
-            #Border part
-            aux_bc = [tf.reduce_mean(
-                   lambda_bc*tf.square(y_pred_x[:,ii]))
-                   for ii in range(self.dout)
-                   if data_mask[ii]]
-            loss_bc = tf.add_n(aux_bc)
-            
-            loss = loss_bc + loss_phys + loss_data                                     
-            
-            # Calculate gradients of data part
+                         for eq in equations]
+            loss_phys = tf.add_n(loss_eqs)
+
+        # Calculate gradients of data part
         gradients_data = tape.gradient(loss_data,
                     self.model.trainable_variables,
                     unconnected_gradients=tf.UnconnectedGradients.ZERO)
 
-            # Calculate gradients of physics part
+        # Calculate gradients of physics part
         gradients_phys = tape.gradient(loss_phys,
                     self.model.trainable_variables,
                     unconnected_gradients=tf.UnconnectedGradients.ZERO)
-            
-            # Calculate gradients of border part
-        gradients_bc = tape.gradient(loss_bc,
-                    self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
-        
-        gradients_phys = [g_phys + g_bc for g_phys, g_bc in zip(gradients_phys,gradients_bc)]
-        
+
         # Delete tape
         del tape
-                
+
         # alpha-based dynamic balance
         if alpha > 0.0:
             mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
-            mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)            
-            
+            mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
             lhat = mean_grad_data/mean_grad_phys
             bal_phys = (1.0-alpha)*bal_phys + alpha*lhat
 
         # Apply gradients to the total loss function
         gradients = [g_data + bal_phys*g_phys
                      for g_data, g_phys in zip(gradients_data, gradients_phys)]
-                        
-        return loss,loss_data,loss_phys,loss_bc, gradients
-
-
-    #@tf.function    
-    def _training_step(self, x_batch, y_batch,
-                      pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                      data_mask, bal_phys, alpha,ba,weights):
-                
-        
-        loss_grads = self.get_loss_grads(x_batch, y_batch,pde, eq_params, lambda_data, lambda_phys, lambda_bc,
-                               data_mask, bal_phys,alpha)
-            
-        if self.optimizer == 'lbfgs':            
-               
-            scipy.optimize.minimize(fun=self.loss_and_grads_wrapper,
-                                    args=(x_batch,                                               
-                                          y_batch,
-                                          pde,
-                                          eq_params,
-                                          lambda_data,
-                                          lambda_phys,
-                                          lambda_bc,
-                                          data_mask,
-                                          bal_phys,
-                                          alpha),
-                                    x0=weights,
-                                    method='L-BFGS-B',
-                                    jac=True,
-                                options={'disp':True,'maxiter':100})
-            
-        else:            
-            gradients = loss_grads[4]
-            
-            self.optimizer.apply_gradients(zip(gradients,
+        self.optimizer.apply_gradients(zip(gradients,
                     self.model.trainable_variables))
-        
-        output = self.model(x_batch, training=True)
+
         # Save inverse constants for output
         inv_ctes = []
         if self.inverse is not None:
             for ii, inv in enumerate(self.inverse, start=1):
                 if inv['type'] == 'const':
                     inv_ctes.append(output[ii][0])
-        
-        return (loss_grads[1],
-                loss_grads[2],
-                loss_grads[3],                
+
+        return (loss_data,
+                loss_phys,
                 inv_ctes,
                 bal_phys)
 
-    def _print_status(self, ep, lu, lf,lbc,
+    def _print_status(self, ep, lu, lf,
                      inv_ctes, alpha, verbose=False):
         """ Print status function """
 
         # Loss functions
         output_file = open(self.dest + 'output.dat', 'a')
-        print(ep, f'{lu}', f'{lf}',f'{lbc}',
+        print(ep, f'{lu}', f'{lf}',
               file=output_file)
         output_file.close()
         if verbose:
-            print(ep, f'{lu}', f'{lf}',f'{lbc}')
+            print(ep, f'{lu}', f'{lf}')
 
         # Inverse coefficients
         if self.inverse and len(inv_ctes) > 0:
@@ -707,14 +594,29 @@ def get_max_grad(grads):
 
 @tf.function
 def get_tr_k(grads):
-    sum_over_layers = [tf.reduce_sum(tf.square(gr)) for gr in grads]    
+    sum_over_layers = [tf.reduce_sum(tf.square(gr)) for gr in grads]
     total_sum       = tf.add_n(sum_over_layers)
     return total_sum
 
-def get_mini_batch(X, Y, ld, lf, lbc, ba, batch_size, flag_idxs, random=True):
-    ''' New separted version for this problem '''
-    idxs = flag_idxs[ba]
-    return X[idxs], Y[idxs], ld[idxs], lf[idxs], lbc[idxs]
+def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
+    idxs = []
+    for fi, fn in zip(flag_idxs, [10, 90]):
+        if random:
+            sl = np.random.choice(fi, fn)
+            idxs.append(sl)
+        else:
+            flag_size = len(fi)//batches
+            sl = slice(ba*flag_size, (ba+1)*flag_size)
+            idxs.append(fi[sl])
+    idxs = np.concatenate(idxs)
+    return X[idxs], Y[idxs], ld[idxs], lf[idxs]
+
+# def get_mini_batch(X, Y, ld, lf, ba, batch_size, flag_idxs, random=True):
+#     ''' New separted version for this problem '''
+#     which = np.random.randint(np.shape(flag_idxs)[0])
+#     fi    = flag_idxs[which]
+#     idxs  = np.random.choice(fi, batch_size)
+#     return X[idxs], Y[idxs], ld[idxs], lf[idxs]
 
 class AdaptiveAct(keras.layers.Layer):
     """ Adaptive activation function """
